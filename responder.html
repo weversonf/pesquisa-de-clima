@@ -346,7 +346,8 @@ function init(){
       if($("loginVertical")) $("loginVertical").value="";
       if($("d_vertical")) $("d_vertical").value="";
     }catch(e){ console.warn("[init] selects",e); }
-    try{ loginSimulado(); }catch(e){ console.warn("[init] cpf",e); }
+    try{ ensureRoster().then(()=>{ try{updateCpfCount();}catch(e){} }); }catch(e){ console.warn("[init] cpf",e); }
+    try{updateCpfCount();}catch(e){}
     try{ renderPulses(); }catch(e){ console.warn("[init] renderPulses",e); }
     try{ updateCount(); }catch(e){ console.warn("[init] updateCount",e); }
     try{ onPapelChange(); }catch(e){ console.warn("[init] onPapelChange",e); }
@@ -394,22 +395,6 @@ function fecharMatricula(ok){
   const o=$("matriculaOverlay"); if(o) o.classList.add("hidden");
   if(!ok && $("matMsg")) $("matMsg").innerHTML='<div class="alert info">Sem CPF nao ha como garantir voto unico — entre com seu CPF para responder.</div>';
 }
-async function loginSimulado(){
-  try{
-    const SIM="12345678987";
-    const roster=await ensureRoster();
-    const h=await cpfHash(SIM);
-    if(!roster[h]){ roster[h]={vertical:VERTICAIS[0].id, filial:VERTICAIS[0].filiais[0]}; MEM_ROSTER=roster; try{lsSet(CPF_ROSTER_KEY,JSON.stringify(roster));}catch(e){} }
-    wCpfHash=h; wCpfEditId=null;
-    wData.vertical=roster[h].vertical; wData.filial=roster[h].filial;
-    const vt=getVotos()[h];
-    if(vt&&vt.voted&&vt.responseId){
-      const prev=load().find(r=>r.id===vt.responseId);
-      if(prev){ aplicarRespostaExistente(prev); wStep=0; renderPulses(); try{updateCount();}catch(e){} return; }
-    }
-    wStep=0; renderPulses(); try{updateCount();}catch(e){}
-  }catch(e){}
-}
 function aplicarRespostaExistente(prev){
   wCpfEditId=prev.id;
   wData.area=prev.area||""; wData.turno=prev.turno||""; wData.tempo=prev.tempo||"";
@@ -418,36 +403,29 @@ function aplicarRespostaExistente(prev){
   while(wData.notas.length<8) wData.notas.push(null);
   wData.melhorar=prev.melhorar||""; wData.forte=prev.forte||""; wData.consent=false;
 }
+function cpfMsgBox(){ return $("cpfMsg")||$("matMsg"); }
 async function verificarMatricula(){
   const inp=$("matInput"); const d=onlyDigits(inp?inp.value:"");
-  if(!validCPF(d)){ if($("matMsg")) $("matMsg").innerHTML='<div class="alert bad">CPF invalido. Confira os 11 digitos.</div>'; return; }
+  const box=cpfMsgBox();
+  if(!validCPF(d)){ if(box) box.innerHTML='<div class="alert bad">CPF invalido. Confira os 11 digitos.</div>'; syncBottom(); return; }
   let h=""; try{ h=await cpfHash(d); }catch(e){}
-  if(!h){ if($("matMsg")) $("matMsg").innerHTML='<div class="alert bad">Falha ao processar. Tente de novo.</div>'; return; }
+  if(!h){ if(box) box.innerHTML='<div class="alert bad">Falha ao processar. Tente de novo.</div>'; return; }
   let roster={}; try{ roster=await ensureRoster(); }catch(e){}
   const cad=roster[h];
-  if(!cad){ if($("matMsg")) $("matMsg").innerHTML='<div class="alert bad">CPF nao cadastrado nesta pesquisa. Fale com o RH.</div>'; return; }
+  if(!cad){ if(box) box.innerHTML='<div class="alert bad">CPF nao cadastrado nesta pesquisa. Fale com o RH.</div>'; return; }
   wCpfHash=h; wCpfEditId=null;
   wData.vertical=cad.vertical; wData.filial=cad.filial;
   const votos=getVotos(); const vt=votos[h];
   if(vt&&vt.voted&&vt.responseId){
     const prev=load().find(r=>r.id===vt.responseId);
     if(prev){
-      wCpfEditId=prev.id;
-      wData.area=prev.area||""; wData.turno=prev.turno||""; wData.tempo=prev.tempo||"";
-      wData.enps=(prev.enps===undefined||prev.enps===null)?null:prev.enps;
-      wData.notas=Array.isArray(prev.notas)?prev.notas.slice(0,8):Array(8).fill(null);
-      while(wData.notas.length<8) wData.notas.push(null);
-      wData.melhorar=prev.melhorar||""; wData.forte=prev.forte||""; wData.consent=false;
-      wStep=0; renderPulses();
-      if($("matMsg")) $("matMsg").innerHTML='<div class="alert ok">CPF reconhecido ('+getVerticalNome(cad.vertical)+' • '+cad.filial+'). <b>Voce ja respondeu — pode editar</b> e reenviar. O CPF <b>nao</b> fica gravado.</div>';
-      setTimeout(()=>{ fecharMatricula(true); wStep=0; renderPulses(); }, 1400);
+      aplicarRespostaExistente(prev);
+      wStep=1; try{renderPulses();}catch(e){}
       try{updateCpfCount();}catch(e){}
       return;
     }
   }
-  wStep=0; renderPulses();
-  if($("matMsg")) $("matMsg").innerHTML='<div class="alert ok">CPF reconhecido ('+getVerticalNome(cad.vertical)+' • '+cad.filial+'). Boa pesquisa! O CPF <b>nao</b> fica gravado.</div>';
-  setTimeout(()=>fecharMatricula(true), 900);
+  wStep=1; try{renderPulses();}catch(e){}
   try{updateCpfCount();}catch(e){}
 }
 async function usarCPFDemo(){
@@ -461,7 +439,7 @@ async function usarCPFDemo(){
         return;
       }
     }
-    if($("matMsg")) $("matMsg").innerHTML='<div class="alert warn">Todos os CPFs demo ja votaram. Resete os cadastros no painel (Dados).</div>';
+    const bx=cpfMsgBox(); if(bx) bx.innerHTML='<div class="alert warn">Todos os CPFs demo ja votaram. Resete os cadastros no painel (Dados).</div>';
   }catch(e){}
 }
 function sairCPF(){ wCpfHash=null; wCpfEditId=null; wData={vertical:"",filial:"",area:"",turno:"",tempo:"",enps:null,notas:Array(8).fill(null),melhorar:"",forte:"",consent:false}; wStep=0; try{renderPulses();}catch(e){} }
@@ -474,27 +452,25 @@ function renderPulses(){
     if(!wCpfHash){
       html+=`
       <div class="pulses-dim">Etapa 1 de 11 • Identificacao</div>
-      <h2 class="pulses-q-title">Entre com seu <span>CPF</span> para responder</h2>
-      <p style="text-align:center;color:#6B7280;font-size:12.8px;margin:-6px 0 10px">O CPF identifica sua <b>empresa e filial</b> e garante <b>1 resposta por pessoa</b> (voce podera editar depois). Ele <b>nunca</b> e gravado com as respostas.</p>
-      <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:14px">
-        <button class="btn btn-primary" style="background:var(--pri)" onclick="abrirMatricula()">Entrar com CPF →</button>
-        <button class="btn btn-ghost" onclick="usarCPFDemo()">Usar CPF demo</button>
+      <h2 class="pulses-q-title">Oi! \u0001F44B Qual e o seu <span>CPF</span>?</h2>
+      <p style="text-align:center;color:#6B7280;font-size:12.8px;margin:-6px 0 10px">So precisamos dele para identificar sua <b>empresa e filial</b> e garantir <b>1 resposta por pessoa</b>. Ele <b>nunca</b> e gravado \u0001F91D</p>
+      <div style="max-width:320px; margin:18px auto 0">
+        <input type="text" id="matInput" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" oninput="maskCPF(this)" onkeydown="if(event.key==='Enter')verificarMatricula()" style="text-align:center; font-size:17px; font-weight:700; letter-spacing:.04em; padding:13px 12px; border:1.5px solid #E6EAF0; border-radius:12px; width:100%">
+        <div id="cpfMsg" style="margin-top:10px"></div>
+        <button class="btn btn-primary" style="background:var(--pri); width:100%; justify-content:center; margin-top:10px" onclick="verificarMatricula()">Comecar \u000027A1</button>
+        <div style="text-align:center; margin-top:10px"><button style="background:none;border:0;color:var(--pri);font-weight:700;font-size:12.5px;cursor:pointer" onclick="usarCPFDemo()">usar CPF demo</button></div>
       </div>`;
     } else {
       const vNome=getVerticalNome(wData.vertical);
       html+=`
-      <div class="pulses-dim">Etapa 1 de 11 • Perfil anonimo</div>
-      <h2 class="pulses-q-title">Oi! 👋 Que bom te ver por aqui</h2>
-      <p style="text-align:center;color:#6B7280;font-size:12.8px;margin:-6px 0 10px">Sua empresa e filial já estão <b>preenchidas</b> — complete o resto rapidinho. É tudo <b>anônimo</b> 🤝</p>
-      <div class="pulses-profile" style="grid-template-columns:1fr 1fr">
-        <div><label>Empresa / Vertical</label><input type="text" value="${vNome}" disabled></div>
-        <div><label>Filial / Unidade</label><input type="text" value="${wData.filial||""}" disabled></div>
-        <div><label>Área *</label><select id="w_area"><option value="">Selecione</option>${["Operacional","Administrativo","Comercial / Atendimento","Liderança / Gestão"].map(o=>`<option ${wData.area===o?'selected':''}>${o}</option>`).join("")}</select></div>
-        <div><label>Turno *</label><select id="w_turno"><option value="">Selecione</option>${["Dia","Noite","Revezamento / Escala","Administrativo flex"].map(o=>`<option ${wData.turno===o?'selected':''}>${o}</option>`).join("")}</select></div>
-        <div style="grid-column:1 / -1"><label>Tempo de casa *</label><select id="w_tempo"><option value="">Selecione</option>${["Até 1 ano","1 a 3 anos","3 a 8 anos","Mais de 8 anos"].map(o=>`<option ${wData.tempo===o?'selected':''}>${o}</option>`).join("")}</select></div>
+      <div class="pulses-dim">Etapa 1 de 11 • Identificado</div>
+      <h2 class="pulses-q-title">E voce mesmo! \u00002705</h2>
+      <p style="text-align:center;color:#6B7280;font-size:12.8px;margin:-6px 0 10px"><b>${vNome}</b> • <b>${wData.filial||""}</b> — tudo <b>anonimo</b> daqui pra frente \u0001F91D</p>
+      <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:14px">
+        <button class="btn btn-primary" style="background:var(--pri)" onclick="nextStep()">Comecar \u000027A1</button>
       </div>
-      <div class="alert info" style="margin-top:14px">🔒 <b>Anonimato:</b> gravamos so <code>vertical, filial</code> + faixas.${wCpfEditId?(" Voce <b>ja respondeu</b> — ao reenviar, sua resposta sera <b>atualizada</b> (sem duplicar)."):("")}</div>
-      `;
+      <div style="text-align:center; margin-top:10px"><button style="background:none;border:0;color:#6B7280;font-weight:600;font-size:12px;cursor:pointer" onclick="sairCPF()">nao sou eu — trocar CPF</button></div>
+      ${wCpfEditId?'<div class="alert info" style="margin-top:14px">Voce <b>ja respondeu</b> — pode revisar e reenviar; atualizamos sem duplicar.</div>':''}`;
     }
   } else if(step===1){
     const val=wData.enps;
@@ -625,7 +601,7 @@ function syncBottom(){
   prev.disabled = wStep===0;
   let canNext=true;
   if(wStep===0){
-    canNext = !!(wCpfHash && wData.vertical && wData.filial && wData.area && wData.turno && wData.tempo);
+    canNext = !!(wCpfHash && wData.vertical && wData.filial);
   } else if(wStep===1){
     canNext = wData.enps!==null;
   } else if(wStep>=2 && wStep<=9){
@@ -645,9 +621,8 @@ function syncBottom(){
   }
 }
 function nextStep(){
-  if(wStep===0 && !(wCpfHash && wData.vertical && wData.filial && wData.area && wData.turno && wData.tempo)){
-    if(!wCpfHash){ abrirMatricula(); }
-    $("formMsg").innerHTML='<div class="alert bad">⚠️ Entre com seu CPF e preencha área, turno e tempo.</div>'; return;
+  if(wStep===0 && !(wCpfHash && wData.vertical && wData.filial)){
+    $("formMsg").innerHTML='<div class="alert bad">⚠️ Digite seu CPF para começar.</div>'; return;
   }
   if(wStep===1 && wData.enps===null){$("formMsg").innerHTML='<div class="alert bad">⚠️ Escolha 0 a 10.</div>';return}
   if(wStep>=2 && wStep<=9 && wData.notas[wStep-2]===null){$("formMsg").innerHTML='<div class="alert bad">⚠️ Selecione uma alternativa.</div>';return}
@@ -659,7 +634,7 @@ function submitPulses(){
   if(!wCpfHash){ abrirMatricula(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Entre com seu CPF para responder (garante 1 resposta por pessoa).</div>'; return; }
   const cad=(((typeof MEM_ROSTER!=="undefined")&&MEM_ROSTER)||{})[wCpfHash]||{};
   const V=cad.vertical||wData.vertical, F=cad.filial||wData.filial;
-  if(!(V&&F&&wData.area&&wData.turno&&wData.tempo)){ wStep=0; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Volte e preencha área, turno e tempo.</div>'; return; }
+  if(!(V&&F)){ wStep=0; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Digite seu CPF para começar.</div>'; return; }
   if(wData.enps===null){ wStep=1; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Responda eNPS.</div>'; return; }
   for(let i=0;i<8;i++) if(wData.notas[i]===null){ wStep=2+i; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Responda pergunta '+(i+1)+'.</div>'; return; }
   if(!wData.consent){$("formMsg").innerHTML='<div class="alert bad">⚠️ Marque o consentimento LGPD.</div>'; return; }
@@ -683,20 +658,24 @@ function submitPulses(){
   window.scrollTo({top:0, behavior:"smooth"});
 }
 
-function fillExample(){
-  if(!wData.vertical){ const v=VERTICAIS[Math.floor(Math.random()*VERTICAIS.length)]; wData.vertical=v.id; wData.filial=v.filiais[Math.floor(Math.random()*v.filiais.length)]; }
-  wData.area=["Operacional","Administrativo","Comercial / Atendimento","Liderança / Gestão"][Math.floor(Math.random()*4)];
-  wData.turno=["Dia","Noite","Revezamento / Escala","Administrativo flex"][Math.floor(Math.random()*4)];
-  wData.tempo=["Até 1 ano","1 a 3 anos","3 a 8 anos","Mais de 8 anos"][Math.floor(Math.random()*4)];
+async function fillExample(){
+  try{
+    const roster=await ensureRoster();
+    const list=demoCPFList();
+    for(let i=0;i<list.length;i++){
+      const h=await cpfHash(list[i].cpf);
+      if(roster[h]){ wCpfHash=h; wData.vertical=list[i].vertical; wData.filial=list[i].filial; break; }
+    }
+  }catch(e){}
+  wData.area=""; wData.turno=""; wData.tempo="";
   wData.enps=8;
   wData.notas=Array.from({length:8},()=> Math.floor(Math.random()*4));
-  wData.melhorar="Melhorar a comunicação entre turnos e verticais.";
-  wData.forte="Bom clima entre colegas e apoio da liderança direta.";
+  wData.melhorar="Melhorar a comunicacao entre turnos e verticais.";
+  wData.forte="Bom clima entre colegas e apoio da lideranca direta.";
   wData.consent=true;
-  wStep=0; renderPulses();
-  $("formMsg").innerHTML='<div class="alert ok">✨ Exemplo preenchido — navegue com Próximo ou envie direto.</div>';
+  wStep=1; renderPulses();
+  $("formMsg").innerHTML='<div class="alert ok">Exemplo preenchido — navegue com Proximo ou envie direto.</div>';
 }
-
 // GLOBAL TABS & DASHBOARD
 function updateCount(){ try{ const n=load().length; if($("dataCount")) $("dataCount").textContent=`Registros armazenados: ${n} (neste navegador)`; if($("liveCount")) $("liveCount").textContent=`${n} respostas locais`; }catch(e){ console.warn("[updateCount]",e); } }
 window.updateCount=updateCount;
