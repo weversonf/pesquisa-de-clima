@@ -387,6 +387,7 @@ async function ensureRoster(){
   const o={};
   const list=demoCPFList();
   for(let i=0;i<list.length;i++){ o[await cpfHash(list[i].cpf)]={vertical:list[i].vertical, filial:list[i].filial}; }
+  try{ o[await cpfHash("12345678987")]={vertical:VERTICAIS[0].id, filial:VERTICAIS[0].filiais[0]}; }catch(e){}
   MEM_ROSTER=o;
   try{ lsSet(CPF_ROSTER_KEY, JSON.stringify(o)); }catch(e){}
   return o;
