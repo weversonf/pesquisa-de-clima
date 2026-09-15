@@ -831,6 +831,80 @@ function clearFilters(){
   renderDash();
 }
 function destroyCharts(){Object.values(charts).forEach(c=>{try{c.destroy()}catch(e){}});charts={}}
+function setupCanvas(cv,h){
+  if(!cv) return null;
+  try{
+    const box=cv.parentElement;
+    const w=Math.max(220,((box&&box.clientWidth)?box.clientWidth:600)-32);
+    const H=h||250;
+    const dpr=(typeof window!=="undefined"&&window.devicePixelRatio)||1;
+    cv.width=w*dpr; cv.height=H*dpr; cv.style.width="100%"; cv.style.height=H+"px";
+    const ctx=cv.getContext("2d"); ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,H);
+    return {ctx:ctx,w:w,h:H};
+  }catch(e){ return null; }
+}
+function drawDonut(cv,vals,colors,labels){
+  const s=setupCanvas(cv,250); if(!s) return;
+  const c=s.ctx, total=vals.reduce((a,b)=>a+b,0)||1;
+  const cx=s.w/2, cy=96, R=76, r=48;
+  let a=-Math.PI/2;
+  vals.forEach((v,i)=>{ const a2=a+(v/total)*Math.PI*2;
+    c.beginPath(); c.arc(cx,cy,R,a+0.03,a2-0.03); c.arc(cx,cy,r,a2-0.03,a+0.03,true); c.closePath();
+    c.fillStyle=colors[i]; c.fill(); a=a2; });
+  c.fillStyle="#0F172A"; c.font="800 22px Inter,Arial"; c.textAlign="center"; c.textBaseline="middle";
+  c.fillText(String(total),cx,cy);
+  c.font="600 11px Inter,Arial"; c.textAlign="left";
+  let lx=12, ly=196;
+  labels.forEach((L,i)=>{ const t=L+" ("+vals[i]+")";
+    const tw=c.measureText(t).width+26;
+    if(lx+tw>s.w-8){ lx=12; ly+=17; }
+    c.fillStyle=colors[i]; c.fillText("●",lx,ly);
+    c.fillStyle="#334155"; c.fillText(t,lx+14,ly);
+    lx+=tw+10; });
+  c.fillStyle="#94A3B8"; c.font="600 10px Inter,Arial"; c.textAlign="right"; c.fillText("modo offline",s.w-8,s.h-6);
+}
+function drawBars(cv,labels,vals,colors,maxV,fmt){
+  const s=setupCanvas(cv,250); if(!s) return;
+  const c=s.ctx, padL=34, padB=46, padT=18, W=s.w-padL-12, H=s.h-padT-padB;
+  const max=Math.max.apply(null,[maxV].concat(vals))||1;
+  c.strokeStyle="#E6EAF0"; c.lineWidth=1; c.fillStyle="#94A3B8"; c.font="600 10px Inter,Arial"; c.textAlign="right";
+  for(let g=0;g<=4;g++){ const v=max*g/4, y=padT+H-(H*g/4);
+    c.beginPath(); c.moveTo(padL,y); c.lineTo(padL+W,y); c.stroke();
+    c.fillText(String(Math.round(v*10)/10),padL-6,y+3); }
+  const bw=Math.min(46,(W/labels.length)*0.5);
+  c.textAlign="center";
+  labels.forEach((L,i)=>{ const x=padL+W*(i+0.5)/labels.length, bh=H*(vals[i]/max), y=padT+H-bh;
+    c.fillStyle=colors[i%colors.length];
+    if(c.roundRect){ c.beginPath(); c.roundRect(x-bw/2,y,bw,Math.max(2,bh),6); c.fill(); } else { c.fillRect(x-bw/2,y,bw,Math.max(2,bh)); }
+    c.fillStyle="#0F172A"; c.font="800 12px Inter,Arial"; c.fillText(fmt(vals[i]),x,y-6);
+    c.fillStyle="#475569"; c.font="600 10px Inter,Arial"; c.fillText(L,x,padT+H+14); });
+  c.fillStyle="#94A3B8"; c.font="600 10px Inter,Arial"; c.textAlign="right"; c.fillText("modo offline",s.w-8,s.h-6);
+}
+function drawLine(cv,labels,vals){
+  const s=setupCanvas(cv,250); if(!s) return;
+  const c=s.ctx, padL=30, padB=32, padT=16, W=s.w-padL-12, H=s.h-padT-padB, min=1, max=5;
+  c.strokeStyle="#E6EAF0"; c.lineWidth=1; c.fillStyle="#94A3B8"; c.font="600 10px Inter,Arial"; c.textAlign="right";
+  for(let g=0;g<=4;g++){ const v=min+(max-min)*g/4, y=padT+H-H*g/4;
+    c.beginPath(); c.moveTo(padL,y); c.lineTo(padL+W,y); c.stroke(); c.fillText(v.toFixed(0),padL-6,y+3); }
+  const X=i=>(labels.length===1?padL+W/2:padL+W*i/(labels.length-1));
+  const Y=v=>padT+H-H*((v-min)/(max-min));
+  c.strokeStyle="#7C3AED"; c.lineWidth=2.5; c.beginPath();
+  vals.forEach((v,i)=>{ const x=X(i),y=Y(v); if(i===0)c.moveTo(x,y); else c.lineTo(x,y); });
+  c.stroke(); c.lineWidth=1; c.textAlign="center";
+  vals.forEach((v,i)=>{ const x=X(i),y=Y(v);
+    c.fillStyle="#7C3AED"; c.beginPath(); c.arc(x,y,4,0,7); c.fill();
+    c.fillStyle="#fff"; c.beginPath(); c.arc(x,y,2,0,7); c.fill();
+    c.fillStyle="#475569"; c.font="600 10px Inter,Arial"; c.fillText(labels[i],x,padT+H+15); });
+  c.fillStyle="#94A3B8"; c.textAlign="right"; c.fillText("modo offline",s.w-8,s.h-6);
+}
+function drawFallbackCharts(enpsData,dimAvgs,meses,evoData,dist){
+  try{
+    drawDonut($("chEnps"),enpsData,["#16A34A","#EAB308","#EF4444"],["Promotores","Neutros","Detratores"]);
+    drawBars($("chDim"),["Lider.","Comun.","Recon.","Ambiente","Cultura"],dimAvgs.map(v=>+v.toFixed(2)),dimAvgs.map(v=>v>=4?"#0F766E":v>=3?"#2E5BFF":"#EF4444"),5,function(v){return v.toFixed(2)});
+    drawLine($("chEvo"),meses,evoData);
+    drawBars($("chLik"),["A","B","C","D"],dist,["#0F766E","#22C55E","#F59E0B","#EF4444"],0,function(v){return v});
+  }catch(e){}
+}
 function renderDash(){
   if(!session){$("loginMsg").innerHTML='<div class="alert warn">🔐 Faça login demo acima para ver o dashboard.</div>';return}
   const rows=filtered(); const box=$("kAnon");
@@ -859,15 +933,19 @@ function renderDash(){
   $("kFav").textContent=fav.toFixed(1)+"%";$("kMedia").textContent=media.toFixed(2);
   $("kDim").textContent=`⚠️ ${DIMS[minI].d} ${dimAvgs[minI].toFixed(2)}`;$("kDimD").textContent=`forte: ${DIMS[maxI].d} ${dimAvgs[maxI].toFixed(2)}`;
   destroyCharts();
+  const enpsData=[rows.filter(r=>r.enps>=9).length,rows.filter(r=>r.enps>=7&&r.enps<=8).length,rows.filter(r=>r.enps<=6).length];
+  const byMes={};rows.forEach(r=>{ if(!byMes[r.mes]) byMes[r.mes]=[]; byMes[r.mes].push(avg(r.notas.map(mcToScore))); });
+  const meses=Object.keys(byMes).sort();
+  const evoData=meses.map(m=>+avg(byMes[m]).toFixed(2));
+  const dist=[0,1,2,3].map(v=>allNotes.filter(n=>n===v).length);
   if(typeof Chart!=="undefined"){
     try{ Chart.defaults.font.family='Inter'; Chart.defaults.color='#64748B'; }catch(e){}
-    charts.enps=new Chart($("chEnps"),{type:"doughnut",data:{labels:["Promotores (9-10)","Neutros (7-8)","Detratores (0-6)"],datasets:[{data:[rows.filter(r=>r.enps>=9).length,rows.filter(r=>r.enps>=7&&r.enps<=8).length,rows.filter(r=>r.enps<=6).length], backgroundColor:["#16A34A","#EAB308","#EF4444"], borderWidth:0, hoverOffset:8}]},options:{cutout:'66%', plugins:{legend:{position:"bottom", labels:{usePointStyle:true, pointStyleWidth:8, padding:18, font:{weight:600}}}, tooltip:{backgroundColor:'#111827'}}}});
+    charts.enps=new Chart($("chEnps"),{type:"doughnut",data:{labels:["Promotores (9-10)","Neutros (7-8)","Detratores (0-6)"],datasets:[{data:enpsData, backgroundColor:["#16A34A","#EAB308","#EF4444"], borderWidth:0, hoverOffset:8}]},options:{cutout:'66%', plugins:{legend:{position:"bottom", labels:{usePointStyle:true, pointStyleWidth:8, padding:18, font:{weight:600}}}, tooltip:{backgroundColor:'#111827'}}}});
     charts.dim=new Chart($("chDim"),{type:"bar",data:{labels:DIMS.map(d=>d.d),datasets:[{data:dimAvgs.map(v=>+v.toFixed(2)), backgroundColor:dimAvgs.map(v=>v>=4?"#0F766E":v>=3?"#2E5BFF":"#EF4444"), borderRadius:8, borderSkipped:false, barThickness:18}]},options:{scales:{y:{min:1,max:5, grid:{color:'#F1F5F9'}, ticks:{stepSize:1}}, x:{grid:{display:false}}}, plugins:{legend:{display:false}, tooltip:{backgroundColor:'#111827'}}}});
-    const byMes={};rows.forEach(r=>{ if(!byMes[r.mes]) byMes[r.mes]=[]; byMes[r.mes].push(avg(r.notas.map(mcToScore))); });
-    const meses=Object.keys(byMes).sort();
-    charts.evo=new Chart($("chEvo"),{type:"line",data:{labels:meses,datasets:[{label:"Média mensal",data:meses.map(m=>+avg(byMes[m]).toFixed(2)), borderColor:"#7C3AED", backgroundColor:"rgba(124,58,237,.08)", tension:.38, fill:true, pointRadius:4, pointBackgroundColor:"#7C3AED", pointBorderColor:"#fff", pointBorderWidth:2}]},options:{scales:{y:{min:1,max:5, grid:{color:'#F1F5F9'}}, x:{grid:{display:false}}}, plugins:{legend:{display:false}, tooltip:{backgroundColor:'#111827'}}}});
-    const dist=[0,1,2,3].map(v=>allNotes.filter(n=>n===v).length);
+    charts.evo=new Chart($("chEvo"),{type:"line",data:{labels:meses,datasets:[{label:"Média mensal",data:evoData, borderColor:"#7C3AED", backgroundColor:"rgba(124,58,237,.08)", tension:.38, fill:true, pointRadius:4, pointBackgroundColor:"#7C3AED", pointBorderColor:"#fff", pointBorderWidth:2}]},options:{scales:{y:{min:1,max:5, grid:{color:'#F1F5F9'}}, x:{grid:{display:false}}}, plugins:{legend:{display:false}, tooltip:{backgroundColor:'#111827'}}}});
     charts.lik=new Chart($("chLik"),{type:"bar",data:{labels:["A Excelente","B Boa","C Regular","D Ruim"],datasets:[{data:dist, backgroundColor:["#0F766E","#22C55E","#F59E0B","#EF4444"], borderRadius:8, barThickness:22}]},options:{scales:{y:{grid:{color:'#F1F5F9'}}, x:{grid:{display:false}}}, plugins:{legend:{display:false}, tooltip:{backgroundColor:'#111827'}}}});
+  } else {
+    drawFallbackCharts(enpsData,dimAvgs,meses,evoData,dist);
   }
   $("tblLik").innerHTML="<tr><th>Opção</th><th>Qtd</th><th>%</th></tr>"+[0,1,2,3].map(v=>{const q=allNotes.filter(n=>n===v).length; const lab=["A","B","C","D"][v]; return `<tr><td>${lab}</td><td>${q}</td><td>${(q/allNotes.length*100).toFixed(1)}%</td></tr>`}).join("");
   // heatmap hierárquico
