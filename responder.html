@@ -173,27 +173,27 @@ footer{color:#94A3B8; font-size:11.5px; text-align:center; padding:18px}
   </div>
 </header>
 
-<!-- MATRICULA MODAL (opcional) -->
+<!-- LOGIN CPF -->
 <div id="matriculaOverlay" class="matricula-overlay hidden">
   <div class="matricula-card">
-    <h2>🔑 Verificação de elegibilidade</h2>
-    <p class="sub" style="margin:4px 0 14px">Informe sua matrícula para liberar o questionário. A matrícula <b>nunca</b> é gravada com as respostas — usamos apenas para controlar pendência e gerar um token descartável.</p>
-    <label>Matrícula *</label>
-    <input type="text" id="matInput" placeholder="Ex: M0042" style="text-transform:uppercase; letter-spacing:.06em; font-weight:700" maxlength="10">
+    <h2>🔑 Entrar com CPF</h2>
+    <p class="sub" style="margin:4px 0 14px">Informe seu CPF para identificar sua <b>empresa e filial</b> e garantir <b>1 resposta por pessoa</b> (voce podera editar depois). O CPF <b>nunca</b> é gravado com as respostas.</p>
+    <label>CPF *</label>
+    <input type="text" id="matInput" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" oninput="maskCPF(this)">
     <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap">
-      <button class="btn btn-primary" style="flex:1; justify-content:center; background:var(--pri)" onclick="verificarMatricula()">Verificar e liberar →</button>
-      <button class="btn btn-ghost" onclick="fecharMatricula(false)">Continuar sem matrícula</button>
+      <button class="btn btn-primary" style="flex:1; justify-content:center; background:var(--pri)" onclick="verificarMatricula()">Entrar →</button>
+      <button class="btn btn-ghost" onclick="usarCPFDemo()">Usar CPF demo</button>
     </div>
     <div id="matMsg"></div>
-    <p class="sub" style="margin:10px 0 0; font-size:11.5px">Demo válidas: <code>M0001</code> a <code>M0120</code> (pendente). Já concluídas ficam bloqueadas. <a href="#" onclick="event.preventDefault(); gerarListaMatriculasDemo()">ver lista</a> • <span id="matDemoHint"></span></p>
-    <div class="alert info" style="font-size:11.5px">Regra de ouro: em <code>clima_respostas_v1</code> salvamos só <code>id, mes, vertical, filial, area, turno, tempo, enps, notas[8], textos</code>. Matrícula descartada após geração do <code>sessionToken</code>.</div>
+    <p class="sub" style="margin:10px 0 0; font-size:11.5px">12 CPFs ficticios para demo. Cada CPF vota 1 vez (e pode editar depois). <a href="#" onclick="event.preventDefault(); gerarListaMatriculasDemo()">ver lista</a> • <span id="matDemoHint"></span></p>
+    <div class="alert info" style="font-size:11.5px">Regra de ouro: em <code>clima_respostas_v1</code> vai só <code>id, mes, vertical, filial, area, turno, tempo, enps, notas[8], textos</code>. O CPF vira <code>SHA-256</code> e serve só p/ voto único — fora das respostas.</div>
   </div>
 </div>
 
 <!-- FORM -->
 <div id="tab-form">
   <div class="pulses-top">
-    <div style="width:120px"><button class="btn btn-ghost btn-small" onclick="abrirMatricula()">🔑 Matrícula</button></div>
+    <div style="width:120px"><button class="btn btn-ghost btn-small" onclick="abrirMatricula()">🔑 Entrar com CPF</button></div>
     <div class="pulses-top-center">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.5" fill="currentColor"/></svg>
       Resposta confidencial
@@ -212,7 +212,7 @@ footer{color:#94A3B8; font-size:11.5px; text-align:center; padding:18px}
   <div id="formMsg" role="status" aria-live="polite" style="max-width:940px; margin:12px auto; padding:0 16px"></div>
   <div style="text-align:center; padding:10px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap">
     <button class="btn btn-ghost btn-small" onclick="fillExample()">✨ Preencher exemplo (demo)</button>
-    <button class="btn btn-ghost btn-small" onclick="abrirMatricula()">🔑 Testar matrícula</button>
+    <button class="btn btn-ghost btn-small" onclick="abrirMatricula()">🔑 Testar CPF</button>
   </div>
 </div>
 
@@ -269,32 +269,77 @@ const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).sli
 const monthKey=(d=new Date())=>d.toISOString().slice(0,7);
 const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
 
-// MATRICULAS SIMULADAS (blindadas)
-function ensureMatriculas(){
+// ========== CPF / ELEITORES (demo client-side; producao: Supabase + RLS) ==========
+// REGRA DE OURO: o CPF (e ate seu hash) NUNCA entra em `clima_respostas_v1`.
+// - ROSTER (quem pode responder e onde lota): hashSHA256(CPF + sal) -> {vertical, filial}
+// - VOTOS (voto unico + recibo p/ editar): hash -> {voted:true, responseId}
+// O recibo vive SOMENTE neste navegador. Sem ele, ninguem consegue ligar uma
+// resposta a um CPF — nem com acesso total ao banco. Em producao, roster e flag
+// `voted` vivem no servidor (RLS) e o recibo vira token descartavel.
+const CPF_SALT="clima-demo-v1|pesquisa-de-clima";
+const CPF_ROSTER_KEY="clima_cpf_roster_v1";
+const CPF_VOTE_KEY="clima_cpf_votos_v1";
+let MEM_ROSTER=null, MEM_VOTOS={};
+let wCpfHash=null, wCpfEditId=null; // sessao do respondente (nunca gravada na resposta)
+const onlyDigits=s=>String(s||"").replace(/\D/g,"");
+function validCPF(d){
+  d=onlyDigits(d); if(d.length!==11) return false;
+  if(/^(\d)\1{10}$/.test(d)) return false;
+  let s=0; for(let i=0;i<9;i++) s+=Number(d[i])*(10-i);
+  let r=(s*10)%11; if(r===10) r=0; if(r!==Number(d[9])) return false;
+  s=0; for(let i=0;i<10;i++) s+=Number(d[i])*(11-i);
+  r=(s*10)%11; if(r===10) r=0; return r===Number(d[10]);
+}
+function maskCPF(el){ const d=onlyDigits(el.value).slice(0,11); el.value=d.replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d)/,"$1.$2").replace(/(\d{3})(\d{1,2})$/,"$1-$2"); }
+function cyrb53(str,seed){ seed=seed||7; let h1=0xdeadbeef^seed,h2=0x41c6ce57^seed; for(let i=0;i<str.length;i++){ const ch=str.charCodeAt(i); h1=Math.imul(h1^ch,2654435761); h2=Math.imul(h2^ch,1597334677); } h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909); h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909); return (h2>>>0).toString(16).padStart(8,"0")+(h1>>>0).toString(16).padStart(8,"0"); }
+async function sha256hex(str){
+  try{ if(window.crypto&&crypto.subtle){ const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(str)); return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""); } }catch(e){}
+  return "demo-"+cyrb53(str);
+}
+const cpfHash=d=>sha256hex(onlyDigits(d)+"|"+CPF_SALT);
+function demoCPFList(){
+  const bases=["123456789","234567890","345678901","456789012","567890123","678901234","789012345","890123456","901234567","012345678","135792468","246813579"];
+  return bases.map((b,i)=>{
+    let s=0; for(let k=0;k<9;k++) s+=Number(b[k])*(10-k);
+    let r=(s*10)%11; if(r===10) r=0;
+    const d10=String(r); const b2=b+d10; s=0;
+    for(let k=0;k<10;k++) s+=Number(b2[k])*(11-k);
+    r=(s*10)%11; if(r===10) r=0;
+    const v=VERTICAIS[i%VERTICAIS.length];
+    return {cpf:b+d10+String(r), vertical:v.id, filial:v.filiais[Math.floor(i/VERTICAIS.length)%v.filiais.length]};
+  });
+}
+async function ensureRoster(){
+  if(MEM_ROSTER) return MEM_ROSTER;
+  try{ const raw=lsGet(CPF_ROSTER_KEY); if(raw){ const o=JSON.parse(raw); if(o&&Object.keys(o).length){ MEM_ROSTER=o; return o; } } }catch(e){}
+  const o={};
+  const list=demoCPFList();
+  for(let i=0;i<list.length;i++){ o[await cpfHash(list[i].cpf)]={vertical:list[i].vertical, filial:list[i].filial}; }
+  MEM_ROSTER=o;
+  try{ lsSet(CPF_ROSTER_KEY, JSON.stringify(o)); }catch(e){}
+  return o;
+}
+function getVotos(){ try{ const raw=lsGet(CPF_VOTE_KEY); if(raw){ const o=JSON.parse(raw); if(o&&typeof o==="object"){ MEM_VOTOS=o; return o; } } }catch(e){} return MEM_VOTOS||{}; }
+function setVotos(o){ MEM_VOTOS=o||{}; try{ lsSet(CPF_VOTE_KEY, JSON.stringify(MEM_VOTOS)); }catch(e){} }
+function resetCPFdemo(){ try{ lsDel(CPF_ROSTER_KEY); }catch(e){} try{ lsDel(CPF_VOTE_KEY); }catch(e){} MEM_ROSTER=null; MEM_VOTOS={}; wCpfHash=null; wCpfEditId=null; ensureRoster().then(()=>{ try{updateCpfCount();}catch(e){} }); if($("dataMsg")) $("dataMsg").innerHTML='<div class="alert ok">Cadastros CPF demo resetados (12 CPFs ficticios).</div>'; }
+function updateCpfCount(){
+  let votados=0; try{ votados=Object.values(getVotos()).filter(v=>v&&v.voted).length; }catch(e){}
+  if($("matCount")) $("matCount").textContent="12 CPFs demo • "+votados+" ja responderam";
+  if($("matDemoHint")) $("matDemoHint").textContent=(12-votados)+" pendentes";
+}
+async function gerarListaMatriculasDemo(){
   try{
-    const m=lsGet(MAT_KEY);
-    if(m){ const a=JSON.parse(m); if(Array.isArray(a)&&a.length){ MEM_MAT=a; return a; } }
+    const roster=await ensureRoster(); const votos=getVotos();
+    const keys=Object.keys(roster).slice(0,4).map(h=>h.slice(0,6)+":"+roster[h].filial+((votos[h]&&votos[h].voted)?" (votou)":"")).join(" | ");
+    if($("matMsg")) $("matMsg").innerHTML='<div class="alert info">Use <b>Usar CPF demo</b> para entrar. Amostra de hashes: '+keys+' ... (nunca CPF puro)</div>';
   }catch(e){}
-  if(MEM_MAT&&MEM_MAT.length) return MEM_MAT;
-  const arr=[];
-  for(let i=1;i<=120;i++){ const code="M"+String(i).padStart(4,"0"); arr.push({code, status:"pendente"}); }
-  MEM_MAT=arr;
-  try{ lsSet(MAT_KEY, JSON.stringify(arr)); }catch(e){}
-  return arr;
 }
-function getMatriculas(){ try{ return ensureMatriculas(); }catch(e){ return []; } }
-function setMatriculas(a){ MEM_MAT=(a||[]).slice(); try{ lsSet(MAT_KEY, JSON.stringify(MEM_MAT)); }catch(e){} }
-function resetMatriculas(){ try{ lsDel(MAT_KEY); }catch(e){} MEM_MAT=null; ensureMatriculas(); updateMatCount(); if($("dataMsg")) $("dataMsg").innerHTML='<div class="alert ok">Matrículas resetadas: 120 pendentes (M0001–M0120).</div>'; }
-function updateMatCount(){
-  const arr=getMatriculas(); const pend=arr.filter(x=>x.status==="pendente").length; const conc=arr.filter(x=>x.status==="concluido").length;
-  if($("matCount")) $("matCount").textContent = `${pend} pendentes • ${conc} concluídas`;
-  if($("matDemoHint")) $("matDemoHint").textContent = `${pend} pendentes`;
-}
-function gerarListaMatriculasDemo(){
-  const arr=getMatriculas().slice(0,8).map(x=>`${x.code}:${x.status}`).join(", ");
-  $("matMsg").innerHTML='<div class="alert info">Exemplos: '+arr+' … (total 120)</div>';
-}
-
+// compat: nomes antigos do fluxo matricula
+const ensureMatriculas=()=>ensureRoster();
+const getMatriculas=()=>[];
+const setMatriculas=()=>{};
+const resetMatriculas=()=>resetCPFdemo();
+const updateMatCount=()=>updateCpfCount();
 // WIZARD STATE - 11 etapas: 0 perfil, 1 eNPS, 2-9 (8 MC), 10 abertas (2 textos)
 let wStep=0;
 let wData={vertical:"", filial:"", area:"", turno:"", tempo:"", enps:null, notas:Array(8).fill(null), melhorar:"", forte:"", consent:false};
@@ -318,8 +363,8 @@ function init(){
       if($("loginVertical")) $("loginVertical").value="";
       if($("d_vertical")) $("d_vertical").value="";
     }catch(e){ console.warn("[init] selects",e); }
-    try{ ensureMatriculas(); updateMatCount(); }catch(e){ console.warn("[init] matriculas",e); }
-    try{ const tok=lsGet(SESSION_KEY); if(tok) wSessionToken=tok; }catch(e){}
+    try{ ensureRoster().then(()=>{ try{updateCpfCount();}catch(e){} }); }catch(e){ console.warn("[init] cpf",e); }
+    try{updateCpfCount();}catch(e){}
     try{ renderPulses(); }catch(e){ console.warn("[init] renderPulses",e); }
     try{ updateCount(); }catch(e){ console.warn("[init] updateCount",e); }
     try{ onPapelChange(); }catch(e){ console.warn("[init] onPapelChange",e); }
@@ -361,56 +406,90 @@ function onDashVerticalChange(){
   populateFilialSelect($("d_unidade"), v, true);
   renderDash();
 }
-
-// MATRICULA
-function abrirMatricula(){ $("matriculaOverlay").classList.remove("hidden"); $("matInput").focus(); }
+// LOGIN CPF (identifica vertical/filial + voto unico; nunca vincula a resposta)
+function abrirMatricula(){ const o=$("matriculaOverlay"); if(o) o.classList.remove("hidden"); const i=$("matInput"); if(i) i.focus(); }
 function fecharMatricula(ok){
-  $("matriculaOverlay").classList.add("hidden");
-  if(!ok) $("matMsg").innerHTML='<div class="alert info">Continuando sem matrícula — resposta permanece anônima.</div>';
+  const o=$("matriculaOverlay"); if(o) o.classList.add("hidden");
+  if(!ok && $("matMsg")) $("matMsg").innerHTML='<div class="alert info">Sem CPF nao ha como garantir voto unico — entre com seu CPF para responder.</div>';
 }
-function verificarMatricula(){
-  const code=($("matInput").value||"").trim().toUpperCase();
-  if(!code){ $("matMsg").innerHTML='<div class="alert bad">Digite a matrícula.</div>'; return; }
-  const arr=getMatriculas();
-  const idx=arr.findIndex(x=> x.code===code);
-  if(idx===-1){ $("matMsg").innerHTML='<div class="alert bad">Matrícula não encontrada. Demo: M0001 a M0120.</div>'; return; }
-  if(arr[idx].status==="concluido"){ $("matMsg").innerHTML='<div class="alert warn">Matrícula já utilizada (concluído). Cada matrícula só responde uma vez.</div>'; return; }
-  arr[idx].status="concluido";
-  setMatriculas(arr);
-  wSessionToken="tok_"+uid();
-  try{ lsSet(SESSION_KEY, wSessionToken); }catch(e){}
-  updateMatCount();
-  $("matMsg").innerHTML='<div class="alert ok">Matrícula validada! Token descartável <code>'+wSessionToken.slice(0,12)+'…</code> gerado. Formulário liberado — matrícula <b>não será gravada</b> com as respostas.</div>';
-  setTimeout(()=> fecharMatricula(true), 900);
+async function verificarMatricula(){
+  const inp=$("matInput"); const d=onlyDigits(inp?inp.value:"");
+  if(!validCPF(d)){ if($("matMsg")) $("matMsg").innerHTML='<div class="alert bad">CPF invalido. Confira os 11 digitos.</div>'; return; }
+  let h=""; try{ h=await cpfHash(d); }catch(e){}
+  if(!h){ if($("matMsg")) $("matMsg").innerHTML='<div class="alert bad">Falha ao processar. Tente de novo.</div>'; return; }
+  let roster={}; try{ roster=await ensureRoster(); }catch(e){}
+  const cad=roster[h];
+  if(!cad){ if($("matMsg")) $("matMsg").innerHTML='<div class="alert bad">CPF nao cadastrado nesta pesquisa. Fale com o RH.</div>'; return; }
+  wCpfHash=h; wCpfEditId=null;
+  wData.vertical=cad.vertical; wData.filial=cad.filial;
+  const votos=getVotos(); const vt=votos[h];
+  if(vt&&vt.voted&&vt.responseId){
+    const prev=load().find(r=>r.id===vt.responseId);
+    if(prev){
+      wCpfEditId=prev.id;
+      wData.area=prev.area||""; wData.turno=prev.turno||""; wData.tempo=prev.tempo||"";
+      wData.enps=(prev.enps===undefined||prev.enps===null)?null:prev.enps;
+      wData.notas=Array.isArray(prev.notas)?prev.notas.slice(0,8):Array(8).fill(null);
+      while(wData.notas.length<8) wData.notas.push(null);
+      wData.melhorar=prev.melhorar||""; wData.forte=prev.forte||""; wData.consent=false;
+      wStep=0; renderPulses();
+      if($("matMsg")) $("matMsg").innerHTML='<div class="alert ok">CPF reconhecido ('+getVerticalNome(cad.vertical)+' • '+cad.filial+'). <b>Voce ja respondeu — pode editar</b> e reenviar. O CPF <b>nao</b> fica gravado.</div>';
+      setTimeout(()=>{ fecharMatricula(true); wStep=0; renderPulses(); }, 1400);
+      try{updateCpfCount();}catch(e){}
+      return;
+    }
+  }
+  wStep=0; renderPulses();
+  if($("matMsg")) $("matMsg").innerHTML='<div class="alert ok">CPF reconhecido ('+getVerticalNome(cad.vertical)+' • '+cad.filial+'). Boa pesquisa! O CPF <b>nao</b> fica gravado.</div>';
+  setTimeout(()=>fecharMatricula(true), 900);
+  try{updateCpfCount();}catch(e){}
 }
-
+async function usarCPFDemo(){
+  try{
+    const votos=getVotos(); const list=demoCPFList();
+    for(let i=0;i<list.length;i++){
+      const h=await cpfHash(list[i].cpf);
+      if(!(votos[h]&&votos[h].voted)){
+        if($("matInput")) $("matInput").value=list[i].cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,"$1.$2.$3-$4");
+        verificarMatricula();
+        return;
+      }
+    }
+    if($("matMsg")) $("matMsg").innerHTML='<div class="alert warn">Todos os CPFs demo ja votaram. Resete os cadastros no painel (Dados).</div>';
+  }catch(e){}
+}
+function sairCPF(){ wCpfHash=null; wCpfEditId=null; wData={vertical:"",filial:"",area:"",turno:"",tempo:"",enps:null,notas:Array(8).fill(null),melhorar:"",forte:"",consent:false}; wStep=0; try{renderPulses();}catch(e){} }
 // PULSES RENDER
 function renderPulses(){
   const card=$("pulsesCard");
   const step=wStep;
   let html="";
   if(step===0){
-    // perfil encadeado
-    const verticalOpts = '<option value="">Selecione</option>' + VERTICAIS.map(v=>`<option value="${v.id}" ${wData.vertical===v.id?'selected':''}>${v.nome}</option>`).join("");
-    let filialOpts='<option value="">Selecione a vertical primeiro</option>';
-    if(wData.vertical){
-      const v=VERTICAIS.find(x=>x.id===wData.vertical);
-      filialOpts='<option value="">Selecione</option>' + v.filiais.map(f=>`<option ${wData.filial===f?'selected':''}>${f}</option>`).join("");
-    }
-    html+=`
-      <div class="pulses-dim">Etapa 1 de 11 • Perfil anônimo — Vertical → Filial</div>
-      <h2 class="pulses-q-title">Para começar, selecione seu perfil <span>sem identificação</span></h2>
-      <p style="text-align:center;color:#6B7280;font-size:12.8px;margin:-6px 0 10px">Hierarquia: <b>Vertical → Filial</b> + Área/Turno/Tempo. Se filtra &lt;5, dashboard bloqueia (k=5).</p>
+    if(!wCpfHash){
+      html+=`
+      <div class="pulses-dim">Etapa 1 de 11 • Identificacao</div>
+      <h2 class="pulses-q-title">Entre com seu <span>CPF</span> para responder</h2>
+      <p style="text-align:center;color:#6B7280;font-size:12.8px;margin:-6px 0 10px">O CPF identifica sua <b>empresa e filial</b> e garante <b>1 resposta por pessoa</b> (voce podera editar depois). Ele <b>nunca</b> e gravado com as respostas.</p>
+      <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:14px">
+        <button class="btn btn-primary" style="background:var(--pri)" onclick="abrirMatricula()">Entrar com CPF →</button>
+        <button class="btn btn-ghost" onclick="usarCPFDemo()">Usar CPF demo</button>
+      </div>`;
+    } else {
+      const vNome=getVerticalNome(wData.vertical);
+      html+=`
+      <div class="pulses-dim">Etapa 1 de 11 • Perfil anonimo</div>
+      <h2 class="pulses-q-title">Confirme seu <span>perfil</span> para comecar</h2>
+      <p style="text-align:center;color:#6B7280;font-size:12.8px;margin:-6px 0 10px">Empresa e filial vieram do seu CPF e estao <b>travadas</b>. O CPF <b>nao</b> e gravado.</p>
       <div class="pulses-profile" style="grid-template-columns:1fr 1fr">
-        <div><label>Empresa / Vertical *</label><select id="w_vertical">${verticalOpts}</select></div>
-        <div><label>Filial / Unidade *</label><select id="w_filial">${filialOpts}</select></div>
+        <div><label>Empresa / Vertical</label><input type="text" value="${vNome}" disabled></div>
+        <div><label>Filial / Unidade</label><input type="text" value="${wData.filial||""}" disabled></div>
         <div><label>Área *</label><select id="w_area"><option value="">Selecione</option>${["Operacional","Administrativo","Comercial / Atendimento","Liderança / Gestão"].map(o=>`<option ${wData.area===o?'selected':''}>${o}</option>`).join("")}</select></div>
         <div><label>Turno *</label><select id="w_turno"><option value="">Selecione</option>${["Dia","Noite","Revezamento / Escala","Administrativo flex"].map(o=>`<option ${wData.turno===o?'selected':''}>${o}</option>`).join("")}</select></div>
         <div style="grid-column:1 / -1"><label>Tempo de casa *</label><select id="w_tempo"><option value="">Selecione</option>${["Até 1 ano","1 a 3 anos","3 a 8 anos","Mais de 8 anos"].map(o=>`<option ${wData.tempo===o?'selected':''}>${o}</option>`).join("")}</select></div>
       </div>
-      <div class="alert info" style="margin-top:14px">🔒 <b>Anonimato hierárquico:</b> gravamos só <code>vertical, filial</code> + faixas. Timestamp só mês/ano. Tokens de matrícula descartados.</div>
-      ${wSessionToken? `<div class="alert ok" style="font-size:11.5px">Token ativo: <code>${wSessionToken.slice(0,14)}…</code> • Matrícula desacoplada.</div>` : `<div class="alert warn" style="font-size:11.5px">Opcional: <a href="#" onclick="event.preventDefault(); abrirMatricula()" style="color:#92400E; font-weight:800">validar matrícula</a> antes de responder (controle de pendência sem vincular resposta).</div>`}
-    `;
+      <div class="alert info" style="margin-top:14px">🔒 <b>Anonimato:</b> gravamos so <code>vertical, filial</code> + faixas.${wCpfEditId?(" Voce <b>ja respondeu</b> — ao reenviar, sua resposta sera <b>atualizada</b> (sem duplicar)."):("")}</div>
+      <div style="text-align:center; margin-top:8px"><button class="btn btn-ghost btn-small" onclick="sairCPF()">Sair (trocar CPF)</button></div>`;
+    }
   } else if(step===1){
     const val=wData.enps;
     html+=`
@@ -469,19 +548,10 @@ function renderPulses(){
   }
   card.innerHTML=html;
   if(step===0){
-    const vEl=$("w_vertical"), fEl=$("w_filial");
-    vEl.addEventListener('change', e=>{ wData.vertical=e.target.value; wData.filial=""; renderPulses(); });
-    fEl.addEventListener('change', e=>{ wData.filial=e.target.value; syncBottom(); });
     ["w_area","w_turno","w_tempo"].forEach(id=>{
       const el=$(id);
       if(el) el.addEventListener('change', e=>{ const k=id.replace('w_',''); wData[k]=e.target.value; syncBottom(); });
     });
-  }
-  if(step===10){
-    const mm=$("w_melhorar"), mf=$("w_forte"), mc=$("w_consent");
-    if(mm) mm.addEventListener('input', e=>{ wData.melhorar=e.target.value; renderPulsesKeepFocus(e.target); });
-    if(mf) mf.addEventListener('input', e=>{ wData.forte=e.target.value; renderPulsesKeepFocus(e.target); });
-    if(mc) mc.addEventListener('change', e=>{ wData.consent=e.target.checked; syncBottom(); });
   }
   syncBottom();
   bindSliderEvents();
@@ -549,7 +619,7 @@ function syncBottom(){
   prev.disabled = wStep===0;
   let canNext=true;
   if(wStep===0){
-    canNext = !!(wData.vertical && wData.filial && wData.area && wData.turno && wData.tempo);
+    canNext = !!(wCpfHash && wData.vertical && wData.filial && wData.area && wData.turno && wData.tempo);
   } else if(wStep===1){
     canNext = wData.enps!==null;
   } else if(wStep>=2 && wStep<=9){
@@ -569,8 +639,9 @@ function syncBottom(){
   }
 }
 function nextStep(){
-  if(wStep===0 && !(wData.vertical && wData.filial && wData.area && wData.turno && wData.tempo)){
-    $("formMsg").innerHTML='<div class="alert bad">⚠️ Preencha Vertical, Filial, Área, Turno e Tempo.</div>'; return;
+  if(wStep===0 && !(wCpfHash && wData.vertical && wData.filial && wData.area && wData.turno && wData.tempo)){
+    if(!wCpfHash){ abrirMatricula(); }
+    $("formMsg").innerHTML='<div class="alert bad">⚠️ Entre com seu CPF e preencha área, turno e tempo.</div>'; return;
   }
   if(wStep===1 && wData.enps===null){$("formMsg").innerHTML='<div class="alert bad">⚠️ Escolha 0 a 10.</div>';return}
   if(wStep>=2 && wStep<=9 && wData.notas[wStep-2]===null){$("formMsg").innerHTML='<div class="alert bad">⚠️ Selecione uma alternativa.</div>';return}
@@ -579,25 +650,35 @@ function nextStep(){
 }
 function prevStep(){ if(wStep>0){ wStep--; renderPulses(); $("formMsg").innerHTML=""; window.scrollTo({top:0, behavior:"smooth"}); } }
 function submitPulses(){
-  if(!(wData.vertical && wData.filial && wData.area && wData.turno && wData.tempo)){ wStep=0; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Volte e preencha perfil hierárquico.</div>';return}
-  if(wData.enps===null){ wStep=1; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Responda eNPS.</div>';return}
-  for(let i=0;i<8;i++) if(wData.notas[i]===null){ wStep=2+i; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Responda pergunta '+(i+1)+'.</div>';return}
-  if(!wData.consent){$("formMsg").innerHTML='<div class="alert bad">⚠️ Marque o consentimento LGPD.</div>';return}
+  if(!wCpfHash){ abrirMatricula(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Entre com seu CPF para responder (garante 1 resposta por pessoa).</div>'; return; }
+  const cad=(((typeof MEM_ROSTER!=="undefined")&&MEM_ROSTER)||{})[wCpfHash]||{};
+  const V=cad.vertical||wData.vertical, F=cad.filial||wData.filial;
+  if(!(V&&F&&wData.area&&wData.turno&&wData.tempo)){ wStep=0; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Volte e preencha área, turno e tempo.</div>'; return; }
+  if(wData.enps===null){ wStep=1; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Responda eNPS.</div>'; return; }
+  for(let i=0;i<8;i++) if(wData.notas[i]===null){ wStep=2+i; renderPulses(); $("formMsg").innerHTML='<div class="alert bad">⚠️ Responda pergunta '+(i+1)+'.</div>'; return; }
+  if(!wData.consent){$("formMsg").innerHTML='<div class="alert bad">⚠️ Marque o consentimento LGPD.</div>'; return; }
   const mel=(wData.melhorar||"").trim().slice(0,500), fr=(wData.forte||"").trim().slice(0,500);
   const nomeSuspeito=/(sr\.?|sra\.?|senhor|dona|seu |gerente \w+|[A-Z][a-z]+ [A-Z][a-z]+)/.test(mel+" "+fr);
   const arr=load();
-  arr.push({id:uid(),mes:monthKey(),vertical:wData.vertical, filial:wData.filial, area:wData.area, turno:wData.turno, tempo:wData.tempo, enps:Number(wData.enps), notas:wData.notas.map(v=> Number(v)), melhorar:mel, forte:fr});
-  save(arr); updateCount();
-  // descarta token vinculável (mantém token mas não grava matricula)
-  $("formMsg").innerHTML=`<div class="alert ok">✅ <b>Resposta registrada anonimamente!</b> ${wSessionToken? 'Token '+wSessionToken.slice(0,8)+'… consumido e desacoplado.' : 'Sem matrícula vinculada.'} Total: ${arr.length}.${nomeSuspeito?' ⚠️ <i>Evite citar nomes para preservar anonimato.</i>':''}</div>`;
-  wData={vertical:"", filial:"", area:"", turno:"", tempo:"", enps:null, notas:Array(8).fill(null), melhorar:"", forte:"", consent:false};
+  const votos=getVotos();
+  let rid=wCpfEditId||null, isEdit=false;
+  const base={mes:monthKey(),vertical:V,filial:F,area:wData.area,turno:wData.turno,tempo:wData.tempo,enps:Number(wData.enps),notas:wData.notas.map(v=>Number(v)),melhorar:mel,forte:fr};
+  if(rid){ const ix=arr.findIndex(r=>r.id===rid); if(ix>=0){ arr[ix]=Object.assign({id:rid},base); isEdit=true; } }
+  if(!isEdit){ rid=uid(); arr.push(Object.assign({id:rid},base)); }
+  save(arr);
+  votos[wCpfHash]={voted:true, responseId:rid};
+  setVotos(votos);
+  wCpfEditId=rid;
+  try{ updateCount(); }catch(e){}
+  try{ updateCpfCount(); }catch(e){}
+  $("formMsg").innerHTML=`<div class="alert ok">✅ <b>${isEdit?"Resposta atualizada!":"Resposta registrada anonimamente!"}</b> Id aleatório <code>${String(rid).slice(0,8)}…</code>, sem vínculo com seu CPF. Total: ${arr.length}.${nomeSuspeito?' ⚠️ <i>Evite citar nomes para preservar anonimato.</i>':''}</div>`;
+  wData={vertical:V,filial:F,area:"",turno:"",tempo:"",enps:null,notas:Array(8).fill(null),melhorar:"",forte:"",consent:false};
   wStep=0; renderPulses();
   window.scrollTo({top:0, behavior:"smooth"});
 }
+
 function fillExample(){
-  const v=VERTICAIS[Math.floor(Math.random()*VERTICAIS.length)];
-  wData.vertical=v.id;
-  wData.filial=v.filiais[Math.floor(Math.random()*v.filiais.length)];
+  if(!wData.vertical){ const v=VERTICAIS[Math.floor(Math.random()*VERTICAIS.length)]; wData.vertical=v.id; wData.filial=v.filiais[Math.floor(Math.random()*v.filiais.length)]; }
   wData.area=["Operacional","Administrativo","Comercial / Atendimento","Liderança / Gestão"][Math.floor(Math.random()*4)];
   wData.turno=["Dia","Noite","Revezamento / Escala","Administrativo flex"][Math.floor(Math.random()*4)];
   wData.tempo=["Até 1 ano","1 a 3 anos","3 a 8 anos","Mais de 8 anos"][Math.floor(Math.random()*4)];
