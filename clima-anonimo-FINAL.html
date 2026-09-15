@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"><meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">
-<title>Clima Anônimo — RH | vFinal 28 etapas + Hierarquia — FIX 10:20</title>
+<title>Clima Anônimo — Pesquisa de Clima 100% Anônima</title>
+<meta name="description" content="Pesquisa de clima 100% anônima: 8 perguntas + 2 abertas, com dashboard agregado por vertical e filial (k-anonimato = 5, LGPD).">
+<meta name="theme-color" content="#004BFF">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -12,13 +14,21 @@
 :root{
   --bg:#EEF0F5; --card:#FFFFFF; --line:#E6EAF0; --ink:#0F172A; --muted:#6B7280; --muted2:#94A3B8;
   --pri:#004BFF; --pri-dark:#0036B8; --green:#8EAF3B; --teal:#0F766E; --teal-soft:#ECFDF5;
-  --radius-xl:28px; --radius-lg:22px; --radius-md:16px;
+  --color-success:#16A34A; --color-warning:#D97706; --color-danger:#DC2626;
+  --radius-xl:28px; --radius-lg:22px; --radius-md:16px; --radius-sm:10px;
+  --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-6:1.5rem; --space-8:2rem;
+  --container:77.5rem;
   --shadow:0 12px 40px rgba(15,23,42,.06),0 2px 10px rgba(15,23,42,.04); --shadow-sm:0 4px 18px rgba(15,23,42,.05);
 }
 *{box-sizing:border-box} html{scroll-behavior:smooth}
-body{margin:0; font-family:Inter,system-ui,sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased}
+body{margin:0; font-family:Inter,system-ui,sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; overflow-x:hidden}
+.skip-link{position:absolute; left:-999px; top:0; background:#111827; color:#fff; padding:10px 16px; border-radius:0 0 12px 0; z-index:200; font-weight:700; font-size:13px}
+.skip-link:focus{left:0}
+:focus-visible{outline:3px solid #93C5FD; outline-offset:2px; border-radius:6px}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *,*::before,*::after{animation:none!important; transition:none!important} }
 .topbar{position:sticky; top:0; z-index:20; backdrop-filter:blur(16px); background:rgba(255,255,255,.9); border-bottom:1px solid #E6EAF0}
-.topbar-inner{max-width:1240px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap}
+.topbar-inner{max-width:var(--container); margin:0 auto; padding:12px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px 16px; flex-wrap:wrap}
+@media(max-width:760px){.topbar-inner{flex-direction:column; align-items:stretch}.brand{justify-content:center; text-align:center}.nav-seg{overflow-x:auto; max-width:100%; scrollbar-width:thin}.nav-seg button{flex:1 0 auto; white-space:nowrap; min-height:44px}.pill-live{align-self:center}}
 .brand{display:flex; align-items:center; gap:12px}
 .brand-mark{width:38px; height:38px; border-radius:12px; background:#111827; color:#fff; display:grid; place-items:center; font-size:18px; box-shadow:0 6px 16px rgba(0,0,0,.18)}
 .brand h1{margin:0; font-family:"Plus Jakarta Sans",Inter,sans-serif; font-size:17px; font-weight:800; letter-spacing:-.02em}
@@ -31,8 +41,14 @@ body{margin:0; font-family:Inter,system-ui,sans-serif; background:var(--bg); col
 .pill-live{display:inline-flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--line); border-radius:999px; padding:8px 12px; font-size:12.5px; font-weight:600; color:#334155; box-shadow:var(--shadow-sm)}
 .dot{width:8px; height:8px; border-radius:50%; background:#16A34A; box-shadow:0 0 0 6px rgba(22,163,74,.12); animation:pulse 2s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 6px rgba(22,163,74,.12)}50%{box-shadow:0 0 0 9px rgba(22,163,74,.08)}100%{box-shadow:0 0 0 6px rgba(22,163,74,.12)}}
-.shell{max-width:1240px; margin:0 auto; padding:22px 20px 32px}
-.card{background:var(--card); border:1px solid var(--line); border-radius:22px; padding:20px; box-shadow:var(--shadow-sm)}
+.shell{max-width:var(--container); margin:0 auto; padding:clamp(14px,3vw,22px) clamp(12px,3vw,20px) 32px}
+.card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius-lg); padding:clamp(14px,3vw,20px); box-shadow:var(--shadow-sm)}
+.btn,.btn-proximo,.btn-next-q,.nav-seg button,.pulses-bottom-left{min-height:44px}
+select,input[type=text],textarea{font-size:16px}
+@media(max-width:640px){select,input[type=text],textarea{font-size:16px}}
+.table-wrap{overflow:auto; -webkit-overflow-scrolling:touch; max-width:100%}
+.chart-card{position:relative}
+.chart-card canvas{width:100%!important}
 .card h2{margin:0; font-family:"Plus Jakarta Sans",Inter,sans-serif; font-size:16.5px; font-weight:800; letter-spacing:-.02em}
 .sub{color:var(--muted); font-size:12.8px; line-height:1.5; margin:6px 0 14px}
 .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
@@ -99,9 +115,10 @@ footer{color:#94A3B8; font-size:11.5px; text-align:center; padding:18px}
 .pulses-top-center{flex:1; display:flex; justify-content:center; align-items:center; gap:8px; font-size:13.5px; font-weight:600; color:#374151}
 .pulses-top-center svg{width:16px; height:16px}
 .pulses-lang{color:var(--pri); font-weight:700; font-size:13.5px; display:flex; align-items:center; gap:6px; cursor:pointer; background:none; border:0}
-.pulses-stage{background:#F0F2F5; min-height:520px; display:flex; align-items:center; justify-content:center; padding:36px 16px 24px}
-.pulses-card{background:#fff; border-radius:14px; width:100%; max-width:940px; padding:48px 36px 36px; box-shadow:0 2px 18px rgba(0,0,0,.06); border:1px solid #EDEFF3; position:relative}
-.pulses-q-title{text-align:center; font-size:19px; font-weight:800; color:#111827; line-height:1.35; margin:0 0 18px; letter-spacing:-.015em}
+.pulses-stage{background:#F0F2F5; min-height:min(72vh,560px); display:flex; align-items:center; justify-content:center; padding:clamp(16px,4vw,36px) clamp(10px,3vw,16px) 24px}
+.pulses-card{background:#fff; border-radius:14px; width:100%; max-width:940px; padding:clamp(22px,5vw,48px) clamp(16px,5vw,36px) clamp(22px,4vw,36px); box-shadow:0 2px 18px rgba(0,0,0,.06); border:1px solid #EDEFF3; position:relative}
+.pulses-q-title{text-align:center; font-size:clamp(16px,2.6vw,19px); font-weight:800; color:#111827; line-height:1.4; margin:0 0 18px; letter-spacing:-.015em; text-wrap:balance}
+@media(max-width:640px){.pulses-bottom{flex-wrap:wrap; justify-content:center}.pulses-progress-wrap{order:3; flex-basis:100%; max-width:100%}.pulses-top{padding:10px 12px}.pulses-top-center{font-size:12.5px}}
 .pulses-q-title span{color:var(--pri)}
 .pulses-top-btn{display:flex; justify-content:flex-end; margin:-8px 0 18px}
 .btn-next-q{background:var(--pri); color:#fff; border:0; border-radius:999px; padding:10px 18px; font-weight:800; font-size:13.5px; display:inline-flex; align-items:center; gap:8px; cursor:pointer; box-shadow:0 6px 16px rgba(0,75,255,.22); transition:.15s}
@@ -145,6 +162,7 @@ footer{color:#94A3B8; font-size:11.5px; text-align:center; padding:18px}
 </style>
 </head>
 <body>
+<a class="skip-link" href="#pulsesStage">Pular para o questionário</a>
 <header class="topbar" id="globalTopbar">
   <div class="topbar-inner">
     <div class="brand">
@@ -192,12 +210,12 @@ footer{color:#94A3B8; font-size:11.5px; text-align:center; padding:18px}
   <div class="pulses-bottom" id="pulsesBottom">
     <button class="pulses-bottom-left" id="btnAnterior" onclick="prevStep()">‹ &nbsp; Anterior</button>
     <div class="pulses-progress-wrap">
-      <span class="pulses-progress-text" id="progressText">1 de 28</span>
+      <span class="pulses-progress-text" id="progressText">1 de 11</span>
       <div class="pulses-progress-track"><div class="pulses-progress-fill" id="progressFill" style="width:3%"></div></div>
     </div>
     <button class="btn-proximo" id="btnProximo" onclick="nextStep()">Próximo &nbsp; ›</button>
   </div>
-  <div id="formMsg" style="max-width:940px; margin:12px auto; padding:0 16px"></div>
+  <div id="formMsg" role="status" aria-live="polite" style="max-width:940px; margin:12px auto; padding:0 16px"></div>
   <div style="text-align:center; padding:10px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap">
     <button class="btn btn-ghost btn-small" onclick="fillExample()">✨ Preencher exemplo (demo)</button>
     <button class="btn btn-ghost btn-small" onclick="abrirMatricula()">🔑 Testar matrícula</button>
@@ -226,7 +244,7 @@ footer{color:#94A3B8; font-size:11.5px; text-align:center; padding:18px}
           <button class="btn btn-ghost btn-small" onclick="doLogout()">Sair</button>
         </div>
       </div>
-      <div id="loginMsg"></div>
+      <div id="loginMsg" role="status" aria-live="polite"></div>
       <p class="sub" style="margin:10px 0 0">Demo: Diretoria <code>diretoria123</code> • Líderes <code>lider123</code> • Teste rbac travado por vertical/filial.</p>
     </div>
     <div id="dashContent" class="hidden">
@@ -246,7 +264,7 @@ footer{color:#94A3B8; font-size:11.5px; text-align:center; padding:18px}
           <select id="d_tempo" onchange="renderDash()"><option value="">Tempo casa: todos</option><option>Até 1 ano</option><option>1 a 3 anos</option><option>3 a 8 anos</option><option>Mais de 8 anos</option></select>
           <button class="btn btn-ghost btn-small" onclick="clearFilters()">Limpar filtros</button>
         </div>
-        <div id="kAnon"></div>
+        <div id="kAnon" role="status" aria-live="polite"></div>
       </div>
       <div class="card chart-card"><div class="chart-head"><h2>eNPS — Promotores × Neutros × Detratores</h2><span class="chart-badge">0–10</span></div><canvas id="chEnps"></canvas></div>
       <div class="grid2">
@@ -274,7 +292,7 @@ footer{color:#94A3B8; font-size:11.5px; text-align:center; padding:18px}
         <button class="btn btn-ghost btn-small" onclick="exportJSON()">⬇️ Exportar JSON</button>
         <button class="btn btn-ghost btn-small" style="color:#DC2626;border-color:#FECACA;background:#FEF2F2" onclick="wipe()">🗑️ Apagar tudo</button>
       </div>
-      <div id="dataMsg"></div><p class="sub" id="dataCount" style="margin-top:10px"></p>
+      <div id="dataMsg" role="status" aria-live="polite"></div><p class="sub" id="dataCount" style="margin-top:10px"></p>
       <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
         <button class="btn btn-ghost btn-small" onclick="resetMatriculas()">↺ Resetar matrículas pendentes</button>
         <span class="sub" id="matCount"></span>
